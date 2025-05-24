@@ -3,6 +3,7 @@ from discord.ext import commands
 from deep_translator import GoogleTranslator
 from collections import defaultdict, Counter
 import os
+import json
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -27,7 +28,22 @@ LANGUAGES = {
     '🇨🇳': 'zh-CN'
 }
 
-user_languages = {}
+# 🔄 Persistência de idiomas
+LANGUAGE_FILE = "languages.json"
+
+def load_languages():
+    try:
+        with open(LANGUAGE_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_languages():
+    with open(LANGUAGE_FILE, "w") as f:
+        json.dump(user_languages, f)
+
+user_languages = load_languages()
+
 translation_stats = {
     "total": 0,
     "per_user": defaultdict(int),
@@ -51,6 +67,7 @@ class LanguageSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         user_languages[str(interaction.user.id)] = self.values[0]
+        save_languages()
         await interaction.response.send_message(
             f"🌍 Language set to `{self.values[0]}`!", ephemeral=True
         )
