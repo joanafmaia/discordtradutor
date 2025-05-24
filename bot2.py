@@ -28,7 +28,6 @@ LANGUAGES = {
     '🇨🇳': 'zh-CN'
 }
 
-# 🔄 Persistência de idiomas
 LANGUAGE_FILE = "languages.json"
 
 def load_languages():
@@ -118,18 +117,17 @@ async def on_reaction_add(reaction, user):
     user_id = str(user.id)
 
     if user_id not in user_languages:
-        try:
-            await user.send("❗ Please set your language first in #choose-language.")
-        except:
-            pass
+        # Avisar no canal #choose-language
+        channel = discord.utils.get(bot.get_all_channels(), name="choose-language")
+        if channel:
+            try:
+                await channel.send(f"{user.mention} ❗ Please select your language using the menu above.", delete_after=10)
+            except:
+                pass
         return
 
     if user.id == message.author.id:
-        try:
-            await user.send("❌ You cannot translate your own message.")
-        except:
-            pass
-        return
+        return  # Silenciosamente ignora, sem notificar
 
     lang = user_languages[user_id]
 
