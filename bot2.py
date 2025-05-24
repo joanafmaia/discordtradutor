@@ -68,7 +68,8 @@ async def on_ready():
 
     channel = discord.utils.get(bot.get_all_channels(), name="choose-language")
     if channel:
-        async for msg in channel.history(limit=50):
+        pinned = await channel.pins()
+        for msg in pinned:
             if msg.author == bot.user and msg.content.startswith("🌐"):
                 break
         else:
@@ -129,7 +130,7 @@ async def on_reaction_add(reaction, user):
 
     try:
         sent_msg = await message.channel.send(content=user.mention, embed=embed, silent=True)
-        await sent_msg.delete(delay=15)  # ⏱️ Agora com 15 segundos
+        await sent_msg.delete(delay=15)
     except Exception as e:
         print(f"[Send/delete error] {e}")
 
