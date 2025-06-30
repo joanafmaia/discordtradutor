@@ -18,6 +18,7 @@ bot = commands.Bot(
     allowed_mentions=discord.AllowedMentions.none()
 )
 
+# Incluído o idioma Polonês (🇵🇱)
 LANGUAGES = {
     '🇬🇧': 'en',
     '🇪🇸': 'es',
@@ -25,7 +26,8 @@ LANGUAGES = {
     '🇫🇷': 'fr',
     '🇩🇪': 'de',
     '🇮🇹': 'it',
-    '🇨🇳': 'zh-CN'
+    '🇨🇳': 'zh-CN',
+    '🇵🇱': 'pl'  # ✅ Polonês adicionado
 }
 
 LANGUAGE_FILE = "languages.json"
@@ -54,7 +56,8 @@ class LanguageSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=lang, value=code) for lang, code in [
             ("English", "en"), ("Português", "pt"), ("Español", "es"),
-            ("Français", "fr"), ("Deutsch", "de"), ("Italiano", "it"), ("中文", "zh-CN")
+            ("Français", "fr"), ("Deutsch", "de"), ("Italiano", "it"),
+            ("中文", "zh-CN"), ("Polski", "pl")  # ✅ Polonês adicionado
         ]]
         super().__init__(
             custom_id="language_select",
