@@ -53,6 +53,9 @@ translation_stats = {
     "per_language": Counter()
 }
 
+# Guarda pares (message.id, user.id) para evitar traduções duplicadas
+translated_messages = set()
+
 # Dropdown de idioma
 class LanguageSelect(discord.ui.Select):
     def __init__(self):
@@ -88,7 +91,6 @@ async def on_ready():
     print(f"✅ Bot connected as {bot.user}")
     bot.add_view(LanguageMenu())
 
-    # Corrigido: procurar o canal dentro de cada guild para evitar confusão entre servidores
     for guild in bot.guilds:
         channel = discord.utils.get(guild.text_channels, name="choose-language")
         if channel:
@@ -124,8 +126,12 @@ async def on_reaction_add(reaction, user):
     message = reaction.message
     user_id = str(user.id)
 
+    # Previne traduções duplicadas
+    if (message.id, user_id) in translated_messages:
+        return
+    translated_messages.add((message.id, user_id))
+
     if user_id not in user_languages:
-        # Corrigido: buscar o canal dentro do servidor da mensagem, não globalmente
         channel = discord.utils.get(message.guild.text_channels, name="choose-language")
         if channel:
             try:
