@@ -88,15 +88,17 @@ async def on_ready():
     print(f"✅ Bot connected as {bot.user}")
     bot.add_view(LanguageMenu())
 
-    channel = discord.utils.get(bot.get_all_channels(), name="choose-language")
-    if channel:
-        pinned = await channel.pins()
-        for msg in pinned:
-            if msg.author == bot.user and msg.content.startswith("🌐"):
-                break
-        else:
-            sent = await channel.send("🌐 **Select your preferred language below:**", view=LanguageMenu())
-            await sent.pin()
+    # Corrigido: procurar o canal dentro de cada guild para evitar confusão entre servidores
+    for guild in bot.guilds:
+        channel = discord.utils.get(guild.text_channels, name="choose-language")
+        if channel:
+            pinned = await channel.pins()
+            for msg in pinned:
+                if msg.author == bot.user and msg.content.startswith("🌐"):
+                    break
+            else:
+                sent = await channel.send("🌐 **Select your preferred language below:**", view=LanguageMenu())
+                await sent.pin()
 
 @bot.event
 async def on_message(message):
@@ -123,8 +125,8 @@ async def on_reaction_add(reaction, user):
     user_id = str(user.id)
 
     if user_id not in user_languages:
-        # Avisar no canal #choose-language
-        channel = discord.utils.get(bot.get_all_channels(), name="choose-language")
+        # Corrigido: buscar o canal dentro do servidor da mensagem, não globalmente
+        channel = discord.utils.get(message.guild.text_channels, name="choose-language")
         if channel:
             try:
                 await channel.send(f"{user.mention} ❗ Please select your language using the menu above.", delete_after=10)
