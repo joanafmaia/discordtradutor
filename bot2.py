@@ -1,9 +1,10 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from deep_translator import GoogleTranslator
 from collections import defaultdict, Counter
 import os
 import json
+import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -18,7 +19,7 @@ bot = commands.Bot(
     allowed_mentions=discord.AllowedMentions.none()
 )
 
-# Incluído o idioma Polonês (🇵🇱), Turco (🇹🇷), e Galês (🏴)
+# Includes Polish (🇵🇱), Turkish (🇹🇷), and Welsh (🏴) languages
 LANGUAGES = {
     '🇬🇧': 'en',
     '🇪🇸': 'es',
@@ -32,18 +33,66 @@ LANGUAGES = {
     '🏴': 'cy'
 }
 
-LANGUAGE_FILE = "languages.json"
+LANGUAGE_FILE = "user_languages.json"
 
 def load_languages():
     try:
-        with open(LANGUAGE_FILE, "r") as f:
-            return json.load(f)
+        with open(LANGUAGE_FILE, "r", encoding='utf-8') as f:
+            data = json.load(f)
+            print(f"✅ Loaded {len(data)} user language configurations")
+            return data
     except FileNotFoundError:
+        print(f"⚠️ File {LANGUAGE_FILE} not found, starting with empty configuration")
+        return {}
+    except json.JSONDecodeError as e:
+        print(f"❌ Error parsing {LANGUAGE_FILE}: {e}")
+        print("🔄 Creating backup and starting fresh")
+        # Create backup of corrupted file
+        try:
+            os.rename(LANGUAGE_FILE, f"{LANGUAGE_FILE}.backup")
+        except:
+            pass
+        return {}
+    except Exception as e:
+        print(f"❌ Unexpected error loading languages: {e}")
         return {}
 
 def save_languages():
-    with open(LANGUAGE_FILE, "w") as f:
-        json.dump(user_languages, f)
+    try:
+        # Make backup before overwriting
+        if os.path.exists(LANGUAGE_FILE):
+            try:
+                os.rename(LANGUAGE_FILE, f"{LANGUAGE_FILE}.temp")
+            except:
+                pass
+        
+        with open(LANGUAGE_FILE, "w", encoding='utf-8') as f:
+            json.dump(user_languages, f, indent=2, ensure_ascii=False)
+        
+        # Verify that it was saved correctly
+        with open(LANGUAGE_FILE, "r", encoding='utf-8') as f:
+            saved_data = json.load(f)
+            if len(saved_data) != len(user_languages):
+                raise ValueError("Data verification failed after save")
+        
+        # Remove temporary backup if everything went well
+        temp_file = f"{LANGUAGE_FILE}.temp"
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+            
+        print(f"✅ Saved {len(user_languages)} user configurations")
+        
+    except Exception as e:
+        print(f"❌ Error saving languages: {e}")
+        # Try to restore backup if it exists
+        temp_file = f"{LANGUAGE_FILE}.temp"
+        if os.path.exists(temp_file):
+            try:
+                os.rename(temp_file, LANGUAGE_FILE)
+                print("🔄 Restored from backup")
+            except:
+                print("❌ Failed to restore backup")
+        raise e
 
 user_languages = load_languages()
 
@@ -53,10 +102,10 @@ translation_stats = {
     "per_language": Counter()
 }
 
-# Guarda pares (message.id, user.id) para evitar traduções duplicadas
+# Store pairs (message.id, user.id) to avoid duplicate translations
 translated_messages = set()
 
-# Dropdown de idioma
+# Language dropdown
 class LanguageSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=lang, value=code) for lang, code in [
@@ -74,21 +123,65 @@ class LanguageSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        user_languages[str(interaction.user.id)] = self.values[0]
-        save_languages()
-        await interaction.response.send_message(
-            f"🌍 Language set to `{self.values[0]}`!", ephemeral=True
-        )
+        user_id = str(interaction.user.id)
+        selected_lang = self.values[0]
+        
+        try:
+            # Update in memory
+            user_languages[user_id] = selected_lang
+            
+            # Save to file with validation
+            save_languages()
+            
+            # Verify that it was saved correctly
+            reloaded_data = load_languages()
+            if user_id not in reloaded_data or reloaded_data[user_id] != selected_lang:
+                # If validation fails, try to save again
+                print(f"⚠️ Validation failed for user {user_id}, retrying save")
+                save_languages()
+                
+            await interaction.response.send_message(
+                f"🌍 Language set to `{selected_lang}`!", ephemeral=True
+            )
+            
+        except Exception as e:
+            print(f"❌ Error setting language for user {user_id}: {e}")
+            await interaction.response.send_message(
+                f"❌ Error saving language configuration. Please try again.", ephemeral=True
+            )
 
 class LanguageMenu(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(LanguageSelect())
 
-# Eventos
+# Periodic task to save configurations every 10 minutes
+@tasks.loop(minutes=10)
+async def periodic_save():
+    try:
+        if user_languages:  # Only save if there is data
+            save_languages()
+            print("🔄 Periodic save completed")
+    except Exception as e:
+        print(f"❌ Error in periodic save: {e}")
+
+@periodic_save.before_loop
+async def before_periodic_save():
+    await bot.wait_until_ready()
+
+# Events
 @bot.event
 async def on_ready():
     print(f"✅ Bot connected as {bot.user}")
+    
+    # Validate and show loaded configurations
+    print(f"📊 Loaded configurations for {len(user_languages)} users")
+    
+    # Start periodic saving
+    if not periodic_save.is_running():
+        periodic_save.start()
+        print("🔄 Periodic save task started")
+    
     bot.add_view(LanguageMenu())
 
     for guild in bot.guilds:
@@ -126,7 +219,7 @@ async def on_reaction_add(reaction, user):
     message = reaction.message
     user_id = str(user.id)
 
-    # Previne traduções duplicadas
+    # Prevent duplicate translations
     if (message.id, user_id) in translated_messages:
         return
     translated_messages.add((message.id, user_id))
@@ -141,7 +234,7 @@ async def on_reaction_add(reaction, user):
         return
 
     if user.id == message.author.id:
-        return  # Silenciosamente ignora, sem notificar
+        return  # Silently ignore, without notification
 
     lang = user_languages[user_id]
 
@@ -167,7 +260,7 @@ async def on_reaction_add(reaction, user):
     translation_stats["per_user"][user.id] += 1
     translation_stats["per_language"][lang] += 1
 
-# Comandos
+# Commands
 @bot.hybrid_command(name="stats", description="Show translation statistics")
 async def stats(ctx):
     total = translation_stats["total"]
@@ -184,7 +277,7 @@ async def stats(ctx):
 async def language_cmd(ctx):
     await ctx.send("🌐 Use the menu in #choose-language to set your language.", ephemeral=True)
 
-# Executa
+# Execute
 def run_bot():
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
     if not TOKEN:
