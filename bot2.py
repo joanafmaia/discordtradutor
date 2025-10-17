@@ -102,7 +102,7 @@ LANGUAGE_NAMES = {
     'cy': 'Cymraeg'
 }
 
-LANGUAGE_FILE = "user_languages.json"
+LANGUAGE_FILE = "languages.json"
 
 def get_language_name(lang_code):
     """Get the full language name from language code."""
@@ -184,8 +184,74 @@ translation_stats = {
     "per_language": Counter()
 }
 
-# Store pairs (message.id, user.id) to avoid duplicate translations
-translated_messages = set()
+# Translation button
+class TranslateButton(discord.ui.Button):
+    def __init__(self, message_id: int, message_author_id: int, message_content: str):
+        super().__init__(
+            style=discord.ButtonStyle.primary,
+            label="Translate",
+            emoji="🌍",
+            custom_id=f"translate_{message_id}"
+        )
+        self.message_id = message_id
+        self.message_author_id = message_author_id
+        self.message_content = message_content
+    
+    async def callback(self, interaction: discord.Interaction):
+        user_id = str(interaction.user.id)
+        
+        # Check if user has language configured
+        if user_id not in user_languages:
+            user_status = get_user_language_status(interaction.user.id)
+            await interaction.response.send_message(
+                f"❗ **Please select your language**\n"
+                f"📊 Status: {user_status}\n"
+                f"👆 Go to the #choose-language channel to configure your preferred language.",
+                ephemeral=True
+            )
+            return
+        
+        # Prevent translating own messages
+        if interaction.user.id == self.message_author_id:
+            await interaction.response.send_message(
+                "❌ You cannot translate your own messages.",
+                ephemeral=True
+            )
+            return
+        
+        # Get user's language
+        lang = user_languages[user_id]
+        
+        # Translate
+        try:
+            translated = GoogleTranslator(source='auto', target=lang).translate(self.message_content)
+        except Exception as e:
+            logger.error(f"[Translation error] {e}")
+            await interaction.response.send_message(
+                "❌ Error translating message. Please try again.",
+                ephemeral=True
+            )
+            return
+        
+        # Create embed with translation
+        embed = discord.Embed(description=translated, color=discord.Color.blue())
+        embed.set_footer(text=f"Translated to {get_language_name(lang)}")
+        
+        # Send ephemeral message
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Update statistics
+        translation_stats["total"] += 1
+        translation_stats["per_user"][interaction.user.id] += 1
+        translation_stats["per_language"][lang] += 1
+        
+        # Log translation activity
+        logger.info(f"🔄 Translation completed: {interaction.user.display_name} ({interaction.user.id}) -> {lang} in {interaction.guild.name} #{interaction.channel.name}")
+
+class TranslateView(discord.ui.View):
+    def __init__(self, message_id: int, message_author_id: int, message_content: str):
+        super().__init__(timeout=None)
+        self.add_item(TranslateButton(message_id, message_author_id, message_content))
 
 # Language dropdown
 class LanguageSelect(discord.ui.Select):
@@ -290,6 +356,31 @@ async def on_ready():
         logger.info("🔄 Periodic save task started")
     
     bot.add_view(LanguageMenu())
+    
+    # Clean up old translation buttons from previous bot sessions
+    logger.info("🧹 Cleaning up old translation buttons...")
+    deleted_count = 0
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            try:
+                # Get recent messages from the bot
+                async for message in channel.history(limit=100):
+                    # Delete bot's messages that are replies with buttons (translation buttons)
+                    if (message.author == bot.user and 
+                        message.reference is not None and 
+                        len(message.components) > 0):
+                        try:
+                            await message.delete()
+                            deleted_count += 1
+                        except:
+                            pass
+            except discord.Forbidden:
+                # Skip channels where bot doesn't have permission
+                pass
+            except Exception as e:
+                logger.error(f"Error cleaning up in {channel.name}: {e}")
+    
+    logger.info(f"🧹 Cleaned up {deleted_count} old translation buttons")
 
     for guild in bot.guilds:
         channel = discord.utils.get(guild.text_channels, name="choose-language")
@@ -320,72 +411,14 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+    # Add translate button to each message
     try:
-        if not message.webhook_id:
-            await message.add_reaction("🌍")
+        if not message.webhook_id and message.content:
+            view = TranslateView(message.id, message.author.id, message.content)
+            # Send the button as a reply to the message (no time limit)
+            await message.reply(view=view, mention_author=False)
     except Exception as e:
-        logger.error(f"[Reaction error] {e}")
-
-@bot.event
-async def on_reaction_add(reaction, user):
-    if user.bot:
-        return
-
-    if str(reaction.emoji) != "🌍":
-        return
-
-    message = reaction.message
-    user_id = str(user.id)
-
-    # Prevent duplicate translations
-    if (message.id, user_id) in translated_messages:
-        return
-    translated_messages.add((message.id, user_id))
-
-    if user_id not in user_languages:
-        channel = discord.utils.get(message.guild.text_channels, name="choose-language")
-        if channel:
-            try:
-                user_status = get_user_language_status(user.id)
-                await channel.send(
-                    f"{user.mention} ❗ **Please select your language**\n"
-                    f"📊 Status: {user_status}\n"
-                    f"👆 Use the menu above to configure your preferred language.",
-                    delete_after=15
-                )
-            except:
-                pass
-        return
-
-    if user.id == message.author.id:
-        return  # Silently ignore, without notification
-
-    lang = user_languages[user_id]
-
-    try:
-        translated = GoogleTranslator(source='auto', target=lang).translate(message.content)
-    except Exception as e:
-        logger.error(f"[Translation error] {e}")
-        return
-
-    embed = discord.Embed(description=translated, color=discord.Color.blue())
-    embed.set_author(
-        name=f"{message.author.display_name} ({lang})",
-        icon_url=message.author.display_avatar.url
-    )
-
-    try:
-        sent_msg = await message.channel.send(content=user.mention, embed=embed, silent=True)
-        await sent_msg.delete(delay=15)
-    except Exception as e:
-        logger.error(f"[Send/delete error] {e}")
-
-    translation_stats["total"] += 1
-    translation_stats["per_user"][user.id] += 1
-    translation_stats["per_language"][lang] += 1
-    
-    # Log translation activity
-    logger.info(f"🔄 Translation completed: {user.display_name} ({user.id}) -> {lang} in {message.guild.name} #{message.channel.name}")
+        logger.error(f"[Button error] {e}")
 
 # Commands
 @bot.hybrid_command(name="stats", description="Show translation statistics")
