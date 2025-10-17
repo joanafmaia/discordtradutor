@@ -102,7 +102,7 @@ LANGUAGE_NAMES = {
     'cy': 'Cymraeg'
 }
 
-LANGUAGE_FILE = "user_languages.json"
+LANGUAGE_FILE = "languages.json"
 
 def get_language_name(lang_code):
     """Get the full language name from language code."""
