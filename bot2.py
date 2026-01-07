@@ -329,6 +329,13 @@ async def on_ready():
     else:
         logger.info("🌐 Server whitelist DISABLED - Bot will work in all servers")
     
+    # Sync slash commands with Discord
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"✅ Synced {len(synced)} slash command(s) with Discord")
+    except Exception as e:
+        logger.error(f"❌ Failed to sync commands: {e}")
+    
     # Start periodic saving
     if not periodic_save.is_running():
         periodic_save.start()
@@ -554,6 +561,22 @@ async def serverid(ctx):
     
     await ctx.send(embed=embed, ephemeral=True)
     logger.info(f"📋 Server ID requested by {ctx.author.display_name} in {ctx.guild.name} (ID: {ctx.guild.id})")
+
+@bot.hybrid_command(name="sync", description="Sync bot commands with Discord (Owner only)")
+async def sync_commands(ctx):
+    """Manually sync slash commands with Discord."""
+    if ctx.author.id != ctx.guild.owner_id and not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ This command is for server administrators only.", ephemeral=True)
+        return
+    
+    try:
+        await ctx.defer(ephemeral=True)
+        synced = await bot.tree.sync()
+        await ctx.send(f"✅ Successfully synced {len(synced)} command(s) with Discord!", ephemeral=True)
+        logger.info(f"🔄 Commands manually synced by {ctx.author.display_name} in {ctx.guild.name}")
+    except Exception as e:
+        await ctx.send(f"❌ Error syncing commands: {e}", ephemeral=True)
+        logger.error(f"❌ Error syncing commands: {e}")
 
 # Execute
 def run_bot():
