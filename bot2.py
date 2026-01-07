@@ -689,23 +689,25 @@ async def list_languages(ctx):
     
     await ctx.defer(ephemeral=True)
     
-    # Get all members in the server
     guild = ctx.guild
     configured_users = []
     
-    for member in guild.members:
-        if member.bot:
+    # Iterate over user_languages instead of guild.members (much faster)
+    for user_id_str, lang_code in user_languages.items():
+        try:
+            user_id = int(user_id_str)
+            # Try to get the member from this guild
+            member = guild.get_member(user_id)
+            if member and not member.bot:
+                lang_name = get_language_name(lang_code)
+                configured_users.append({
+                    "name": member.display_name,
+                    "user": member.name,
+                    "lang_code": lang_code,
+                    "lang_name": lang_name
+                })
+        except (ValueError, AttributeError):
             continue
-        user_id_str = str(member.id)
-        if user_id_str in user_languages:
-            lang_code = user_languages[user_id_str]
-            lang_name = get_language_name(lang_code)
-            configured_users.append({
-                "name": member.display_name,
-                "user": member.name,
-                "lang_code": lang_code,
-                "lang_name": lang_name
-            })
     
     if not configured_users:
         embed = discord.Embed(
@@ -742,10 +744,8 @@ async def list_languages(ctx):
             inline=False
         )
     
-    # Add summary footer
-    total_users = len([m for m in guild.members if not m.bot])
-    percentage = (len(configured_users) / total_users * 100) if total_users > 0 else 0
-    embed.set_footer(text=f"📊 {len(configured_users)}/{total_users} users configured ({percentage:.1f}%)")
+    # Add summary footer - just show count without calculating total
+    embed.set_footer(text=f"📊 {len(configured_users)} users configured in this server")
     
     await ctx.send(embed=embed, ephemeral=True)
     logger.info(f"📋 Language list requested by {ctx.author.display_name} in {guild.name}")
