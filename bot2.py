@@ -128,11 +128,13 @@ LANGUAGE_FILE = "languages.json"
 # Allowed server IDs - Add your server IDs here
 # To get a server ID, use the /serverid command
 ALLOWED_SERVERS = [
-    # 123456789012345678,  # Example server ID
+    1370614666002305166,  # EOS
+    1372980735799201792,  # BLB
+    1373791361551306822   # Joana's Server
 ]
 
 # Set to True to enable server whitelist, False to allow all servers
-ENABLE_SERVER_WHITELIST = False
+ENABLE_SERVER_WHITELIST = True
 
 def is_server_allowed(guild_id):
     """Check if a server is in the allowed list."""
