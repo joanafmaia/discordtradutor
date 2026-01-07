@@ -125,6 +125,21 @@ LANGUAGE_NAMES = {
 
 LANGUAGE_FILE = "languages.json"
 
+# Allowed server IDs - Add your server IDs here
+# To get a server ID, use the /serverid command
+ALLOWED_SERVERS = [
+    # 123456789012345678,  # Example server ID
+]
+
+# Set to True to enable server whitelist, False to allow all servers
+ENABLE_SERVER_WHITELIST = False
+
+def is_server_allowed(guild_id):
+    """Check if a server is in the allowed list."""
+    if not ENABLE_SERVER_WHITELIST:
+        return True
+    return guild_id in ALLOWED_SERVERS
+
 def get_language_name(lang_code):
     """Get the full language name from language code."""
     return LANGUAGE_NAMES.get(lang_code, lang_code)
@@ -305,6 +320,13 @@ async def on_ready():
     # Validate and show loaded configurations
     logger.info(f"📊 Loaded configurations for {len(user_languages)} users")
     
+    # Log server whitelist status
+    if ENABLE_SERVER_WHITELIST:
+        logger.info(f"🔒 Server whitelist ENABLED - {len(ALLOWED_SERVERS)} servers allowed")
+        logger.info(f"📋 Allowed server IDs: {ALLOWED_SERVERS}")
+    else:
+        logger.info("🌐 Server whitelist DISABLED - Bot will work in all servers")
+    
     # Start periodic saving
     if not periodic_save.is_running():
         periodic_save.start()
@@ -313,6 +335,11 @@ async def on_ready():
     bot.add_view(LanguageMenu())
 
     for guild in bot.guilds:
+        # Only setup channels in allowed servers
+        if not is_server_allowed(guild.id):
+            logger.warning(f"⚠️ Skipping setup for unauthorized server: {guild.name} (ID: {guild.id})")
+            continue
+            
         channel = discord.utils.get(guild.text_channels, name="choose-language")
         if channel:
             pinned = await channel.pins()
@@ -339,6 +366,10 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # Check if server is allowed
+    if message.guild and not is_server_allowed(message.guild.id):
+        return
+
     await bot.process_commands(message)
 
     try:
@@ -356,6 +387,11 @@ async def on_reaction_add(reaction, user):
         return
 
     message = reaction.message
+    
+    # Check if server is allowed
+    if message.guild and not is_server_allowed(message.guild.id):
+        return
+    
     user_id = str(user.id)
 
     # Prevent duplicate translations
@@ -411,6 +447,11 @@ async def on_reaction_add(reaction, user):
 # Commands
 @bot.hybrid_command(name="stats", description="Show translation statistics")
 async def stats(ctx):
+    # Check if server is allowed
+    if ctx.guild and not is_server_allowed(ctx.guild.id):
+        await ctx.send("❌ This bot is not authorized to work in this server.", ephemeral=True)
+        return
+    
     total = translation_stats["total"]
     users = len(translation_stats["per_user"])
     top_langs = translation_stats["per_language"].most_common(5)
@@ -423,6 +464,11 @@ async def stats(ctx):
 
 @bot.hybrid_command(name="language", description="Check or change your language setting")
 async def language_cmd(ctx):
+    # Check if server is allowed
+    if ctx.guild and not is_server_allowed(ctx.guild.id):
+        await ctx.send("❌ This bot is not authorized to work in this server.", ephemeral=True)
+        return
+    
     user_id = str(ctx.author.id)
     
     embed = discord.Embed(title="🌍 Your Language Configuration", color=discord.Color.blue())
@@ -469,6 +515,43 @@ async def logs_test(ctx):
     logger.error("❌ This is a test error message")
     
     await ctx.send("🧪 Log test completed! Check the logs/bot.log file and console output.", ephemeral=True)
+
+@bot.hybrid_command(name="serverid", description="Get the current server ID (Admin only)")
+async def serverid(ctx):
+    """Get the server ID - useful for configuring the whitelist."""
+    if not ctx.guild:
+        await ctx.send("❌ This command can only be used in a server.", ephemeral=True)
+        return
+    
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ This command is for administrators only.", ephemeral=True)
+        return
+    
+    embed = discord.Embed(title="🆔 Server Information", color=discord.Color.blue())
+    embed.add_field(name="Server Name", value=ctx.guild.name, inline=False)
+    embed.add_field(name="Server ID", value=f"`{ctx.guild.id}`", inline=False)
+    
+    is_allowed = is_server_allowed(ctx.guild.id)
+    status = "✅ Authorized" if is_allowed else "❌ Not Authorized"
+    embed.add_field(name="Status", value=status, inline=False)
+    
+    if ENABLE_SERVER_WHITELIST:
+        embed.add_field(
+            name="Whitelist Status",
+            value=f"🔒 Enabled ({len(ALLOWED_SERVERS)} servers allowed)",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Whitelist Status",
+            value="🌐 Disabled (all servers allowed)",
+            inline=False
+        )
+    
+    embed.set_footer(text="Copy the Server ID to add it to ALLOWED_SERVERS in bot2.py")
+    
+    await ctx.send(embed=embed, ephemeral=True)
+    logger.info(f"📋 Server ID requested by {ctx.author.display_name} in {ctx.guild.name} (ID: {ctx.guild.id})")
 
 # Execute
 def run_bot():
