@@ -728,19 +728,37 @@ async def list_languages(ctx):
         color=discord.Color.blue()
     )
     
-    # Split into chunks if there are too many users (Discord has a 1024 char limit per field)
-    users_text = []
-    for user in configured_users:
-        users_text.append(f"• **{user['name']}** (@{user['user']}) → {user['lang_name']} (`{user['lang_code']}`)")
+    # Build fields respecting Discord's 1024 character limit per field
+    current_field_lines = []
+    current_length = 0
+    field_number = 1
     
-    # Split into multiple fields if needed (max 25 fields, ~1024 chars each)
-    chunk_size = 20  # Users per field
-    for i in range(0, len(users_text), chunk_size):
-        chunk = users_text[i:i+chunk_size]
-        field_name = f"Users {i+1}-{min(i+chunk_size, len(users_text))}" if len(users_text) > chunk_size else "Configured Users"
+    for user in configured_users:
+        line = f"• **{user['name']}** (@{user['user']}) → {user['lang_name']} (`{user['lang_code']}`)\n"
+        line_length = len(line)
+        
+        # If adding this line would exceed 1024 chars, create a new field
+        if current_length + line_length > 1024:
+            if current_field_lines:
+                field_name = f"Users (Part {field_number})" if field_number > 1 or len(configured_users) > 15 else "Configured Users"
+                embed.add_field(
+                    name=field_name,
+                    value="".join(current_field_lines),
+                    inline=False
+                )
+                field_number += 1
+                current_field_lines = []
+                current_length = 0
+        
+        current_field_lines.append(line)
+        current_length += line_length
+    
+    # Add the last field if there are remaining lines
+    if current_field_lines:
+        field_name = f"Users (Part {field_number})" if field_number > 1 else "Configured Users"
         embed.add_field(
             name=field_name,
-            value="\n".join(chunk),
+            value="".join(current_field_lines),
             inline=False
         )
     
