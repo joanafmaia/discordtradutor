@@ -126,6 +126,12 @@ LANGUAGE_NAMES = {
 LANGUAGE_FILE = "languages.json"
 STATS_FILE = "translation_stats.json"
 
+# Reading time calculation constants
+READING_SPEED_CHARS_PER_MINUTE = 1000   # Average reading speed in characters per minute
+READING_TIME_SAFETY_FACTOR = 1.2        # Safety factor to give users more time
+MIN_READING_TIME_SECONDS = 5            # Minimum display time in seconds
+MAX_READING_TIME_SECONDS = 60           # Maximum display time in seconds
+
 # Allowed server IDs - Add your server IDs here
 # To get a server ID, use the /serverid command
 ALLOWED_SERVERS = [
@@ -155,6 +161,20 @@ def get_user_language_status(user_id):
         current_lang_name = get_language_name(current_lang)
         return f"Your current language: **{current_lang_name}**"
     return "No language configured yet"
+
+def calculate_reading_time(text):
+    if not text:
+        return float(MIN_READING_TIME_SECONDS)
+    
+    # Calculate base reading time in seconds
+    chars_per_second = READING_SPEED_CHARS_PER_MINUTE / 60
+    base_time = len(text) / chars_per_second
+    
+    # Apply safety factor
+    reading_time = base_time * READING_TIME_SAFETY_FACTOR
+    
+    # Clamp between minimum and maximum
+    return max(float(MIN_READING_TIME_SECONDS), min(float(MAX_READING_TIME_SECONDS), reading_time))
 
 def load_languages():
     try:
@@ -496,10 +516,8 @@ async def on_reaction_add(reaction, user):
     
     user_id = str(user.id)
 
-    # Prevent duplicate translations
-    if (message.id, user_id) in translated_messages:
-        return
-    translated_messages.add((message.id, user_id))
+    if (message.id, user_id) not in translated_messages:
+        translated_messages.add((message.id, user_id))
 
     if user_id not in user_languages:
         channel = discord.utils.get(message.guild.text_channels, name="choose-language")
@@ -533,9 +551,12 @@ async def on_reaction_add(reaction, user):
         icon_url=message.author.display_avatar.url
     )
 
+    # Calculate dynamic reading time based on translated text length
+    reading_time = calculate_reading_time(translated)
+    
     try:
         sent_msg = await message.channel.send(content=user.mention, embed=embed, silent=True)
-        await sent_msg.delete(delay=15)
+        await sent_msg.delete(delay=reading_time)
     except Exception as e:
         logger.error(f"[Send/delete error] {e}")
 
